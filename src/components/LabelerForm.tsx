@@ -6,6 +6,7 @@ import {
   getMarcas,
   postImpresion,
   patchContador,
+  loteYaExiste,          // ← nuevo import
 } from '../services/airtable';
 import { buildCodigo21 } from '../utils/formatters';
 import Button from './ui/Button';
@@ -103,6 +104,13 @@ const LabelerForm: React.FC = () => {
   const handlePrint = async () => {
     if (!contador) return;
 
+    // Validar lote único
+    const loteNum = Number(form.lote);
+    if (await loteYaExiste(loteNum)) {
+      alert(`El lote ${loteNum} ya existe en el registro. Elige otro.`);
+      return;
+    }
+
     const prod = productos.find(p => p.id === form.productoId);
     const mkt = marcas.find(m => m.id === form.marcaId);
     if (!prod || !mkt) return alert('Seleccione producto y marca');
@@ -120,19 +128,12 @@ const LabelerForm: React.FC = () => {
     /* -------------- ZPL -------------- */
     const zpl = [
       '^XA^CI28',
-      // Nombre
       `^FO20,20^A0N,24,24^FD${prod.label}^FS`,
-      // F. Fab
       `^FO20,50^A0N,18,18^FDF. Fab: ${form.fechaFab}^FS`,
-      // F. Vto
       `^FO20,75^A0N,18,18^FDF. Vto: ${form.fechaVto}^FS`,
-      // RNE
       `^FO20,100^A0N,20,20^FDRNE: ${prod.rne}^FS`,
-      // RNPA
       `^FO150,100^A0N,20,20^FDRNPA: ${prod.rnpa}^FS`,
-      // Lote
       `^FO20,130^A0N,20,20^FDLOT ${form.lote}^FS`,
-      // Código de barras (21 dígitos)
       `^FO20,160^BY2^BCN,80,Y,N,N^FD${codigo21}^FS`,
       '^XZ',
     ].join('\n');
@@ -140,7 +141,7 @@ const LabelerForm: React.FC = () => {
     /* ------ GRABA EN AIRTABLE ------ */
     await postImpresion({
       id_lata: idLata,
-      lote: Number(form.lote),
+      lote: loteNum,
       marcaId: form.marcaId,
       productoId: form.productoId,
       peso: form.peso,
@@ -153,7 +154,7 @@ const LabelerForm: React.FC = () => {
     await patchContador(contador.id, idLata + 1);
     setContador({ id: contador.id, nextId: idLata + 1 });
 
-    // Enviar a impresora
+    // Enviar ZPL
     (window as any).BrowserPrint.getDefaultDevice(
       'printer',
       (p: any) => p.send(zpl)
@@ -172,14 +173,12 @@ const LabelerForm: React.FC = () => {
   return (
     <>
       <div className="space-y-4">
-        {/* PRODUCTO */}
         <Dropdown
           options={productos.map(p => ({ value: p.id, label: p.label }))}
           value={form.productoId}
           onChange={val => setForm(f => ({ ...f, productoId: val }))}
         />
 
-        {/* MARCA */}
         <Dropdown
           options={marcas.map(m => ({ value: m.id, label: m.label }))}
           value={form.marcaId}
@@ -203,13 +202,11 @@ const LabelerForm: React.FC = () => {
               const val = e.target.value.replace(/\D/g, '').slice(0, 5);
               setForm(f => ({ ...f, lote: val }));
             }}
-            className={`mt-1 block w-full rounded-xl border px-3 py-2
-              ${
-                form.lote.length === 5
-                  ? 'border-neutral-200'
-                  : 'border-red-500'
-              }
-              focus:border-brand focus:ring focus:ring-brand-light focus:ring-opacity-50`}
+            className={`mt-1 block w-full rounded-xl border px-3 py-2 ${
+              form.lote.length === 5
+                ? 'border-neutral-200'
+                : 'border-red-500'
+            } focus:border-brand focus:ring focus:ring-brand-light focus:ring-opacity-50`}
             required
           />
           {form.lote.length !== 5 && (
@@ -255,7 +252,6 @@ const LabelerForm: React.FC = () => {
         <Button onClick={handlePrint}>Imprimir</Button>
       </div>
 
-      {/* TOAST */}
       <Toast visible={toast.visible} message={toast.message} />
     </>
   );
